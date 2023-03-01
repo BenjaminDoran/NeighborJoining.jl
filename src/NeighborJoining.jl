@@ -140,7 +140,7 @@ function _Qlist!(
     marginsums .= vec(mapslices(sum, d, dims=1))
     binomial(n,2) <= length(Qk) || 
         ArgumentError("Qk is too short!")
-    wQk = @view Qk[begin:binomial(n,2)]
+    wQk = @view Qk[firstindex(Qk):binomial(n,2)]
     k = 1
     for j in axes(d, 2), i in (j+1):n
         wQk[k] = (indxs[i], indxs[j], (n-2) * d[i,j] - marginsums[i] - marginsums[j])
