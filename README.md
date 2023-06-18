@@ -35,12 +35,12 @@ njclusts = regNJ(d)
 njclusts = fastNJ(d)
 
 # convert to newicktree string for export to other packages
-nwstring = newicktstring(njclusts)
+nwstring = newickstring(njclusts)
 
 # adding labels to the leaves
 labels = ["leaf $i" for i in 1:10]
-nwstring = newicktstring(njclusts, labels)
+nwstring = newickstring(njclusts, labels)
 
 # adding labels to the internal nodes
-nwstring = newicktstring(njclusts, labels; labelinternalnodes=true)
+nwstring = newickstring(njclusts, labels; labelinternalnodes=true)
 ```
