@@ -21,5 +21,4 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/BenjaminDoran/NeighborJoining.jl",
-    devbranch="main",
 )
