@@ -18,7 +18,7 @@ This package contains algorithms for [neighbor joining](https://en.wikipedia.org
 ## Installation
 
 ```
-add git@github.com:BenjaminDoran/NeighborJoining.jl.git
+add NeighborJoining
 ```
 
 ## Examples
