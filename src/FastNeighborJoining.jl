@@ -1,6 +1,9 @@
+module FastNeighborJoining
+
 ###
 # Fast Neighbor Joining
 ###
+using ..NeighborJoining: NJClust
 """
     fastNJ(d::AbstractMatrix{<:Number})
 
@@ -100,22 +103,6 @@ function _get_independent_merges(q)
     return Iterators.filter((x)->isnew(x[1]) & isnew(x[2]), q)
 end
 
-# function _get_independent_merges(q)
-#     s = Set{Int64}()
-#     isnew(x) = length(s) != length(push!(s, x))
-#     return Iterators.takewhile((x)->isnew(x[1]) & isnew(x[2]), q)
-# end
-
-# function _get_independent_merges(q)
-#     s = Set{Int64}()
-#     isnew(x) = length(s) != length(push!(s, x))
-#     return (
-#         (i, j) for (i,j,_) in q if 
-#             isnew(i) && isnew(j)
-#     )
-# end
-
-
 # """ return -x if less then or equal to n otherwise return x-n """
 _mergeidx(i, n) = i ≤ n ? -i : i-n
 
@@ -145,4 +132,6 @@ end
 # """ distance from existing nodes to new nodes """
 function _distance_to_new_node(d::AbstractMatrix{<:Number}, a::Integer, b::Integer, c::Integer)
     return (d[a,c] + d[b,c] - d[a, b]) / 2
+end
+
 end

@@ -24,7 +24,7 @@ example:
 d = rand(10, 10)^2
 for i in 1:size(d,1) d[i,i]=0 end;
 njclusts = regNJ(d)
-nwstring = newicktstring(njclusts)
+nwstring = NeighborJoining.newickstring(njclusts)
 ```
 """
 function newickstring(njc::NJClust, tiplabels=1:(size(heights(njc), 1)+1); labelinternalnodes=false) 

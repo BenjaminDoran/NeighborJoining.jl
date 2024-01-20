@@ -1,18 +1,23 @@
 name = "NeighborJoining"
 uuid = "3f465f53-8c2e-426b-b4f1-431dfde0fdf8"
 authors = ["Benjamin Doran and collaborators"]
-version = "0.1.1"
+version = "0.2.0"
 
 [deps]
+ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
 [compat]
+ArgCheck = "2.3"
+Printf = "^1.5"
 julia = "^1.5"
+NewickTree = "0.3"
 
 [extras]
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 NewickTree = "b0a14db8-6308-4ebc-8917-f72cd81f5094"
+SafeTestsets = "1bc83da4-3b8d-516f-aca4-4fe02f6d838f"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "NewickTree", "LinearAlgebra"]
+test = ["Aqua", "NewickTree", "Test", "SafeTestsets"]

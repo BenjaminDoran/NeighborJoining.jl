@@ -17,14 +17,22 @@ end
 merges(t::NJClust) = t.merges
 heights(t::NJClust) = t.heights
 
+export merges, heights, NJClust
+
+include("RegularNeighborJoining.jl")
+using .RegularNeighborJoining: regNJ
+export regNJ
+
+include("FastNeighborJoining.jl")
+using .FastNeighborJoining: fastNJ
+export fastNJ
+
+include("newickstring.jl")
+export newickstring
+
+
 Base.hash(a::NJClust, h::UInt) = hash(a.merges, hash(a.heights, hash(:NJClust, h)))
 Base.isequal(a::NJClust, b::NJClust) = isequal(hash(a), hash(b))
 Base.:(==)(a::NJClust, b::NJClust) = a.merges == b.merges && a.heights == b.heights
-
-export fastNJ, regNJ, newickstring, merges, heights, NJClust
-
-include("regNJ.jl")
-include("fastNJ.jl")
-include("newickstring.jl")
 
 end
