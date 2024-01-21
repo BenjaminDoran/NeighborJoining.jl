@@ -30,7 +30,7 @@ nwstring = NeighborJoining.newickstring(njclusts)
 function newickstring(njc::NJClust, tiplabels=1:(size(heights(njc), 1)+1); labelinternalnodes=false) 
     newickstring(merges(njc), heights(njc), string.(tiplabels); labelinternalnodes)
 end
-function newickstring(merges::A, heights::B, tiplabels::AbstractVector{<:String}; labelinternalnodes=false) where {
+function newickstring(merges::A, heights::B, tiplabels::AbstractVector{<:AbstractString}; labelinternalnodes=false) where {
     A<:AbstractArray{<:Integer}, B<:AbstractArray{<:AbstractFloat}
 }
     r = size(heights, 1)
