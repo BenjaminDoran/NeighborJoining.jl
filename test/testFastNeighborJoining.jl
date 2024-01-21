@@ -99,3 +99,15 @@ for i in 1:10
         @test truedists[i] ≈ preddists[i] atol=1e-1
     end
 end
+
+## Need to think about how to test a tree esimator vs. exact algorithm...
+
+# truetrees = readnw.(readlines(joinpath(@__DIR__, "testtrees", "tree_varieties.nw")))
+# truedists = patristic_distances.(truetrees)
+# mrghgts = fastNJ.(truedists)
+# leafnames = map(x->name.(x), getleaves.(truetrees))
+# predtrees = NeighborJoining.newickstring.(merges.(mrghgts), heights.(mrghgts), sort.(leafnames))
+# preddists = patristic_distances.(readnw.(predtrees))
+# for (i, (td, pd)) in enumerate(zip(truedists, preddists))
+#     @test td ≈ pd atol=1e-1
+# end
