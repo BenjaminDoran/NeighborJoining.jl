@@ -9,5 +9,5 @@ Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
 [compat]
 ArgCheck = "2.3"
-Printf = "^1.5"
-julia = "^1.5"
+Printf = "^1.8"
+julia = "^1.8"
