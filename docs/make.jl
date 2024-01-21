@@ -13,9 +13,11 @@ makedocs(;
         canonical="https://BenjaminDoran.github.io/NeighborJoining.jl",
         edit_link="main",
         assets=String[],
+        repolink="https://github.com/BenjaminDoran/NeighborJoining.jl"
     ),
     pages=[
         "Home" => "index.md",
+        "API" => "api.md",
     ],
 )
 

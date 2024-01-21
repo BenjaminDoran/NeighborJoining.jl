@@ -14,9 +14,20 @@ struct NJClust{M, H}
     heights::Matrix{H}
 end
 
+"""
+    merges(t::NJClust)
+extracts the merge list from NJClust object. rowindex is the internal node id, 
+and each column represents the children nodes. 
+Leaf nodes are represented by negative integers corresponding to the index in the original distance matrix
+"""
 merges(t::NJClust) = t.merges
-heights(t::NJClust) = t.heights
 
+"""
+    heights(t::NJClust)
+extracts the heights list from NJClust object. rowindex is the internal node id, 
+and each column represents the distance from the internal node to it's left and right child respectively. 
+"""
+heights(t::NJClust) = t.heights
 export merges, heights, NJClust
 
 include("RegularNeighborJoining.jl")
