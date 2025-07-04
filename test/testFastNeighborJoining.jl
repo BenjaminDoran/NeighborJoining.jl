@@ -100,6 +100,7 @@ for i in 1:10
     end
 end
 
+@test order(regNJ(reshape([abs(i-j) for i in 1:6 for j in 1:6], 6, 6))) == collect(6:-1:1)
 ## Need to think about how to test a tree esimator vs. exact algorithm...
 
 # truetrees = readnw.(readlines(joinpath(@__DIR__, "testtrees", "tree_varieties.nw")))

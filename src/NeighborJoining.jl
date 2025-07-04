@@ -16,19 +16,87 @@ end
 
 """
     merges(t::NJClust)
-extracts the merge list from NJClust object. rowindex is the internal node id, 
-and each column represents the children nodes. 
+extracts the merge list from NJClust object. rowindex is the internal node id,
+and each column represents the children nodes.
 Leaf nodes are represented by negative integers corresponding to the index in the original distance matrix
 """
 merges(t::NJClust) = t.merges
 
 """
     heights(t::NJClust)
-extracts the heights list from NJClust object. rowindex is the internal node id, 
-and each column represents the distance from the internal node to it's left and right child respectively. 
+extracts the heights list from NJClust object. rowindex is the internal node id,
+and each column represents the distance from the internal node to it's left and right child respectively.
 """
 heights(t::NJClust) = t.heights
-export merges, heights, NJClust
+
+
+"""
+    order(clust::NJClust)
+
+Returns the left-to-right order of leaf nodes (tips) in the phylogenetic tree.
+
+Performs a depth-first traversal of the tree structure to determine the order in which
+leaf nodes appear when reading the tree from left to right. This is useful for plotting
+or arranging data according to the tree topology.
+
+# Arguments
+* `clust::NJClust`: A neighbor-joining clustering result containing the tree structure
+  with merges and heights matrices
+
+# Returns
+* `Vector{Int}`: A vector of integers representing the indices of leaf nodes in their
+  left-to-right order in the tree. The indices correspond to the original positions
+  in the distance matrix used to construct the tree.
+
+# Example
+```jldoctest
+julia> d = [
+           0  5  9  9 8
+           5  0 10 10 9
+           9 10  0  8 7
+           9 10  8  0 3
+           8  9  7  3 0
+       ];
+
+julia> njclusts = regNJ(d)
+NJClust{Int64, Float64}([-2 -1; -3 1; -4 2; -5 3], [3.0 2.0; 4.0 3.0; 2.0 2.0; 0.5 0.5])
+
+julia> leaf_order = order(njclusts)
+5-element Vector{Int64}:
+ 5
+ 4
+ 3
+ 2
+ 1
+```
+"""
+function order(clust::NJClust)
+	# Initialize
+    leaf_order = Int[]
+
+    # Stack to store nodes to process: (node_index, is_processed)
+    stack = [(size(clust.merges, 1), false)]
+    while !isempty(stack)
+        node_idx, processed = pop!(stack)
+        if node_idx < 0
+            # Leaf node - add to result
+            push!(leaf_order, abs(node_idx))
+        elseif processed
+            # Internal node already processed - skip
+            continue
+        else
+            # Internal node - add children to stack (right first, then left)
+            # This ensures left-to-right traversal
+            push!(stack, (node_idx, true))  # Mark as processed
+            push!(stack, (clust.merges[node_idx, 2], false))  # Right child
+            push!(stack, (clust.merges[node_idx, 1], false))  # Left child
+        end
+    end
+
+    return leaf_order
+end
+
+export merges, heights, order, NJClust
 
 include("RegularNeighborJoining.jl")
 using .RegularNeighborJoining: regNJ
