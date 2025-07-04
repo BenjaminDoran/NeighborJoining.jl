@@ -64,6 +64,28 @@ julia> heights(njc)
  0.498976   0.00310469
  0.249757   0.249757
 
+julia> order(njc)
+8-element Vector{Int64}:
+ 4
+ 2
+ 7
+ 3
+ 8
+ 5
+ 6
+ 1
+
+julia> Dnt_leafnames[order(njc)]
+8-element Vector{String}:
+ "Xylella_fastidiosa"
+ "Ecoli_K12"
+ "Mbovis_AF2122_97"
+ "Mtuberculosis_H37Rv"
+ "Xfus4834"
+ "Xac306"
+ "Pseudo"
+ "Azoto"
+
 julia> newickstring(njc, Dnt_leafnames)
 "(Xylella_fastidiosa:2.497566e-01,(Ecoli_K12:4.989758e-01,((Mbovis_AF2122_97:1.042187e-02,Mtuberculosis_H37Rv:1.040603e-02):4.856611e-01,((Xfus4834:1.409981e-01,Xac306:1.408139e-01):3.479041e-01,(Pseudo:4.879810e-01,Azoto:4.824200e-01):5.810417e-03):3.142937e-03):3.104687e-03):2.497566e-01):0.000000e+00;"
 ```
