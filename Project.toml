@@ -1,7 +1,7 @@
 name = "NeighborJoining"
 uuid = "3f465f53-8c2e-426b-b4f1-431dfde0fdf8"
 authors = ["Benjamin Doran and collaborators"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
