@@ -2,7 +2,7 @@ using NeighborJoining, Test, SafeTestsets
 
 const GROUP = get(ENV, "GROUP", "All")
 const is_CI = haskey(ENV, "CI")
-const KNOWN_GROUPS = ["All", "Aqua", "RNJ", "FNJ"]
+const KNOWN_GROUPS = ["All", "Aqua", "RNJ", "FNJ", "DNJ"]
 
 GROUP in KNOWN_GROUPS || AssertionError("Env. Var. 'GROUP': $GROUP, not in testing groups\nTesting groups are $KNOWN_GROUPS")
 @info "GROUP is " GROUP
@@ -17,6 +17,12 @@ GROUP in KNOWN_GROUPS || AssertionError("Env. Var. 'GROUP': $GROUP, not in testi
     if GROUP == "All" || GROUP == "FNJ"
         @safetestset "FastNeighborJoining" begin
             include("testFastNeighborJoining.jl")
+        end
+    end
+
+    if GROUP == "All" || GROUP == "DNJ"
+        @safetestset "DynamicNeighborJoining" begin
+            include("testDynamicNeighborJoining.jl")
         end
     end
 
