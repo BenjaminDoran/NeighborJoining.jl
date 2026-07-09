@@ -20,7 +20,7 @@ args:
 * `d` is an n by n square symmetric distance matrix
 
 keyword args:
-* `parallel` toggles multithreaded search/update (default `true`)
+* `parallel` toggles multithreaded search (default `true`)
 
 returns:
 * `NJClust` struct with fields `merges` and `heights`
@@ -52,6 +52,10 @@ bound for that row in every subsequent iteration. Rows whose lower bound already
 exceeds the current global optimum can therefore be skipped entirely, so most of
 the distance matrix does not need to be re-scanned each iteration.
 
+To keep the hot loops dense as nodes are merged, the working data is periodically
+compacted so the remaining active nodes occupy a contiguous block, and the inner
+search kernels are written branch-free so they pipeline and vectorize.
+
 The initial full scan and the per-iteration row search are parallelized with
 Julia's `Base.Threads`; start Julia with multiple threads (e.g. `julia -t auto`)
 to take advantage of this. Threading is engaged adaptively only for iterations
@@ -63,7 +67,7 @@ value of `parallel`.
 function dynamicNJ(d::AbstractMatrix{<:Number}; parallel::Bool = true)
     @argcheck allequal(size(d))
 
-    n = size(d, 1)
+    n = size(d, 1)   # n_original: fixed, used only to map node ids -> merge indices
     merges = zeros(Int, max(n - 1, 0), 2)
     heights = zeros(Float64, max(n - 1, 0), 2)
     n <= 1 && return NJClust(merges, heights)
@@ -81,10 +85,13 @@ function dynamicNJ(d::AbstractMatrix{<:Number}; parallel::Bool = true)
     # Divergence: R[i] is the sum of distances from node i to every other active node.
     R = vec(sum(D, dims = 1))
 
-    # Bookkeeping for the fixed-slot scheme (rows/columns are never compacted).
-    obsolete = falses(n)          # slots retired after their node was merged
+    # Per-slot bookkeeping. Active nodes live in slots 1:n_work; compaction keeps them
+    # dense so the hot loops iterate n_work (≈ remaining nodes) rather than n_original.
+    obsolete = fill(false, n)     # Vector{Bool}: cheaper to load/mask than a BitVector
     idmap = collect(1:n)          # slot -> node id (leaves 1:n, internal nodes n+k)
     Q = fill(typemax(Tf), n)      # per-row minimum join criterion (lower bounds)
+    act = Vector{Int}(undef, n)   # scratch: active-slot list used during compaction
+    n_work = n                    # current slot range in use
 
     # Only spawn threads once there is enough work to outweigh the thread-spawn
     # barrier. The dynamic algorithm skips most rows in later iterations, so blindly
@@ -96,12 +103,12 @@ function dynamicNJ(d::AbstractMatrix{<:Number}; parallel::Bool = true)
     # The initial scan is a single dense O(n^2) pass and parallelises cleanly, so it
     # uses a lower threshold than the per-iteration search.
     coeff = Tf(n - 2)
-    x, y, d_xy = _full_scan!(Q, D, R, n, coeff, threads_ok && n >= _SCAN_PAR_MIN)
+    x, y, d_xy = _full_scan!(Q, D, R, n_work, coeff, threads_ok && n_work >= _SCAN_PAR_MIN)
     _record_merge!(merges, heights, 1, x, y, d_xy, R, idmap, n, n)
 
     prev_z = 0
     if n > 2
-        prev_z = _update!(D, R, obsolete, idmap, x, y, d_xy, n, n + 1, false)
+        prev_z = _update!(D, R, obsolete, idmap, x, y, d_xy, n_work, n + 1)
     end
 
     # --- Remaining iterations. ---
@@ -117,13 +124,21 @@ function dynamicNJ(d::AbstractMatrix{<:Number}; parallel::Bool = true)
             # large enough to amortise the spawn barrier.
             dothreads = threads_ok && last_searched * n_rem >= _WORK_PAR_MIN
             x, y, d_xy, last_searched = dothreads ?
-                _dynamic_search_parallel(Q, D, R, obsolete, prev_z, n, coeff) :
-                _dynamic_search(Q, D, R, obsolete, prev_z, n, coeff)
+                _dynamic_search_parallel(Q, D, R, obsolete, prev_z, n_work, coeff) :
+                _dynamic_search(Q, D, R, obsolete, prev_z, n_work, coeff)
             _record_merge!(merges, heights, it, x, y, d_xy, R, idmap, n, n_rem)
-            prev_z = _update!(D, R, obsolete, idmap, x, y, d_xy, n, n + it, false)
+            prev_z = _update!(D, R, obsolete, idmap, x, y, d_xy, n_work, n + it)
+
+            # Compact the working data once it has become sparse, so later iterations
+            # stop striding over retired slots. Order-preserving, so the join order and
+            # tie-breaks (and hence the output) are unchanged.
+            n_active = n_rem - 1
+            if n_active < _COMPACT_DENSITY * n_work
+                n_work, prev_z = _compact!(D, R, Q, idmap, obsolete, act, n_work, prev_z)
+            end
         else
             # Termination: join the two remaining nodes at their midpoint.
-            a, b = _two_active(obsolete, n)
+            a, b = _two_active(obsolete, n_work)
             _record_merge!(merges, heights, it, a, b, D[a, b], R, idmap, n, 2)
         end
     end
@@ -133,31 +148,57 @@ end
 
 # Minimum predicted search work (rows-to-scan * row-length, i.e. distance reads)
 # before a per-iteration search is run with threads. Below this the work is too
-# small to amortise the thread-spawn barrier and serial execution wins. Tuned so
-# that well-structured inputs (which skip most rows) never regress while large,
-# search-heavy inputs still parallelise.
-const _WORK_PAR_MIN = 500_000
+# small to amortise the thread-spawn barrier and serial execution wins. Calibrated
+# to the (compacted, vectorized) per-row cost so that threading never runs slower
+# than serial at moderate n and only pays off for large, search-heavy inputs.
+const _WORK_PAR_MIN = 1_500_000
 
 # The one-off initial full scan is dense O(n^2) work, so it is worth threading at a
 # much smaller size than the per-iteration search.
 const _SCAN_PAR_MIN = 1024
 
+# Compact the working matrix when the fraction of live slots drops below this. Lower
+# = compact less often (more wasted striding); higher = compact more often (more
+# copying). Geometric shrinkage keeps total compaction cost O(n^2).
+const _COMPACT_DENSITY = 0.6
+
+# Manual unroll width for the inner search/scan kernels: independent accumulator
+# lanes break the argmin's loop-carried dependency so LLVM can pipeline/vectorize.
+const _LANES = 4
+
 # --- Row search helpers -----------------------------------------------------
 
-# Scan row `i` (all columns active) computing its minimum join criterion, storing
-# it in Q[i] and recording the winning column in rowbestj[i]. Used only for the
-# initial full scan, so it omits the obsolete check.
+# Scan row `i` (all columns active) for its minimum join criterion, storing it in
+# Q[i] and the winning column in rowbestj[i]. Used only for the initial full scan,
+# so it omits the obsolete check. Unrolled into `_LANES` independent min-lanes.
 @inline function _scan_row_full!(Q, rowbestj, D, R, n, coeff, i)
     Tf = eltype(Q)
-    q_min = typemax(Tf)
-    j_min = 0
+    INF = typemax(Tf)
+    q0 = INF; q1 = INF; q2 = INF; q3 = INF
+    j0 = 0;   j1 = 0;   j2 = 0;   j3 = 0
     r_i = @inbounds R[i]
-    @inbounds for k in (i + 1):n
-        q = coeff * D[k, i] - r_i - R[k]
+    k = i + 1
+    @inbounds while k + (_LANES - 1) <= n
+        a0 = (coeff * D[k,     i] - r_i) - R[k]
+        a1 = (coeff * D[k + 1, i] - r_i) - R[k + 1]
+        a2 = (coeff * D[k + 2, i] - r_i) - R[k + 2]
+        a3 = (coeff * D[k + 3, i] - r_i) - R[k + 3]
+        c0 = a0 < q0; q0 = ifelse(c0, a0, q0); j0 = ifelse(c0, k,     j0)
+        c1 = a1 < q1; q1 = ifelse(c1, a1, q1); j1 = ifelse(c1, k + 1, j1)
+        c2 = a2 < q2; q2 = ifelse(c2, a2, q2); j2 = ifelse(c2, k + 2, j2)
+        c3 = a3 < q3; q3 = ifelse(c3, a3, q3); j3 = ifelse(c3, k + 3, j3)
+        k += _LANES
+    end
+    q_min = q0; j_min = j0
+    if q1 < q_min || (q1 == q_min && j1 < j_min); q_min = q1; j_min = j1; end
+    if q2 < q_min || (q2 == q_min && j2 < j_min); q_min = q2; j_min = j2; end
+    if q3 < q_min || (q3 == q_min && j3 < j_min); q_min = q3; j_min = j3; end
+    @inbounds while k <= n
+        q = (coeff * D[k, i] - r_i) - R[k]
         if q < q_min
-            q_min = q
-            j_min = k
+            q_min = q; j_min = k
         end
+        k += 1
     end
     @inbounds Q[i] = q_min
     @inbounds rowbestj[i] = j_min
@@ -165,24 +206,42 @@ const _SCAN_PAR_MIN = 1024
 end
 
 # Search active columns `> i` of row `i`, returning (argmin column, min Q, distance
-# at the min) and caching the row minimum in Q[i]. Reads D[k, i] (column i) which
-# is contiguous in Julia's column-major layout.
+# at the min) and caching the row minimum in Q[i]. Obsolete columns are masked to
+# +Inf (a real criterion is never +Inf) rather than branched over, which keeps the
+# unrolled lanes branch-free; compaction keeps the masked fraction small. Reads
+# D[k, i] (column i), contiguous in Julia's column-major layout.
 @inline function _search_row!(Q, D, R, obsolete, n, coeff, i)
     Tf = eltype(Q)
-    q_min = typemax(Tf)
-    d_min = typemax(eltype(D))
-    j_min = 0
+    INF = typemax(Tf)
+    q0 = INF; q1 = INF; q2 = INF; q3 = INF
+    j0 = 0;   j1 = 0;   j2 = 0;   j3 = 0
     r_i = @inbounds R[i]
-    @inbounds for k in (i + 1):n
-        obsolete[k] && continue
-        d = D[k, i]
-        q = coeff * d - r_i - R[k]
-        if q < q_min
-            q_min = q
-            d_min = d
-            j_min = k
-        end
+    k = i + 1
+    @inbounds while k + (_LANES - 1) <= n
+        a0 = ifelse(obsolete[k],     INF, (coeff * D[k,     i] - r_i) - R[k])
+        a1 = ifelse(obsolete[k + 1], INF, (coeff * D[k + 1, i] - r_i) - R[k + 1])
+        a2 = ifelse(obsolete[k + 2], INF, (coeff * D[k + 2, i] - r_i) - R[k + 2])
+        a3 = ifelse(obsolete[k + 3], INF, (coeff * D[k + 3, i] - r_i) - R[k + 3])
+        c0 = a0 < q0; q0 = ifelse(c0, a0, q0); j0 = ifelse(c0, k,     j0)
+        c1 = a1 < q1; q1 = ifelse(c1, a1, q1); j1 = ifelse(c1, k + 1, j1)
+        c2 = a2 < q2; q2 = ifelse(c2, a2, q2); j2 = ifelse(c2, k + 2, j2)
+        c3 = a3 < q3; q3 = ifelse(c3, a3, q3); j3 = ifelse(c3, k + 3, j3)
+        k += _LANES
     end
+    q_min = q0; j_min = j0
+    if q1 < q_min || (q1 == q_min && j1 < j_min); q_min = q1; j_min = j1; end
+    if q2 < q_min || (q2 == q_min && j2 < j_min); q_min = q2; j_min = j2; end
+    if q3 < q_min || (q3 == q_min && j3 < j_min); q_min = q3; j_min = j3; end
+    @inbounds while k <= n
+        if !obsolete[k]
+            q = (coeff * D[k, i] - r_i) - R[k]
+            if q < q_min
+                q_min = q; j_min = k
+            end
+        end
+        k += 1
+    end
+    d_min = j_min == 0 ? typemax(eltype(D)) : @inbounds(D[j_min, i])
     @inbounds Q[i] = q_min
     return j_min, q_min, d_min
 end
@@ -322,62 +381,79 @@ end
 
 # Retire node `y`, reuse slot `x` for the new node `z`, and refresh distances and
 # divergences for all remaining active nodes. Returns the reused slot `z == x`.
-function _update!(D, R, obsolete, idmap, x, y, d_xy, n, parent, parallel)
+# `n` is the current working slot range.
+function _update!(D, R, obsolete, idmap, x, y, d_xy, n, parent)
     @inbounds obsolete[y] = true
     z = x
     @inbounds idmap[z] = parent
     Tr = eltype(R)
 
-    if parallel
-        nt = nthreads()
-        @threads for t in 1:nt
-            k = t
-            @inbounds while k <= n
-                if !(obsolete[k] || k == x)
-                    d_kx = D[k, x]
-                    d_ky = D[k, y]
-                    d_kz = (d_kx + d_ky - d_xy) / 2
-                    D[k, z] = d_kz
-                    D[z, k] = d_kz
-                    R[k] = R[k] - d_kx - d_ky + d_kz
-                end
-                k += nt
-            end
-        end
-        # Accumulate the new node's divergence in a fixed ascending order so the
-        # result is bit-identical to the serial path (thread-order summation would
-        # round differently and could flip a near-tie downstream).
-        r_z = zero(Tr)
-        @inbounds for k in 1:n
-            (obsolete[k] || k == x) && continue
-            r_z += D[k, z]
-        end
-        @inbounds R[z] = r_z
-    else
-        r_z = zero(Tr)
-        @inbounds for k in 1:n
-            (obsolete[k] || k == x) && continue
-            d_kx = D[k, x]
-            d_ky = D[k, y]
-            d_kz = (d_kx + d_ky - d_xy) / 2
-            D[k, z] = d_kz
-            D[z, k] = d_kz
-            R[k] = R[k] - d_kx - d_ky + d_kz
-            r_z += d_kz
-        end
-        @inbounds R[z] = r_z
+    r_z = zero(Tr)
+    @inbounds for k in 1:n
+        (obsolete[k] || k == x) && continue
+        d_kx = D[k, x]
+        d_ky = D[k, y]
+        d_kz = (d_kx + d_ky - d_xy) / 2
+        D[k, z] = d_kz
+        D[z, k] = d_kz
+        R[k] = R[k] - d_kx - d_ky + d_kz
+        r_z += d_kz
     end
+    @inbounds R[z] = r_z
 
     return z
 end
 
+# --- Compaction -------------------------------------------------------------
+
+# Pack the live nodes into slots 1:m (preserving their order) so the hot loops stop
+# striding over retired slots. Moves `D`, `R`, `Q`, `idmap`; resets `obsolete`.
+# Because the relabelling is monotonic, the smallest-index tie-break selects the
+# same node as before, so the algorithm's output is unchanged. Returns the new slot
+# range `m` and the remapped `prev_z`.
+function _compact!(D, R, Q, idmap, obsolete, act, n_work, prev_z)
+    m = 0
+    new_prev = prev_z
+    @inbounds for s in 1:n_work
+        if !obsolete[s]
+            m += 1
+            act[m] = s
+            if s == prev_z
+                new_prev = m
+            end
+        end
+    end
+
+    # Move the distance matrix. Iterating columns then rows ascending is safe in
+    # place: every target (i, jj) is <= its source (act[i], act[jj]) elementwise, and
+    # a written cell is never a source for a later, higher-indexed cell.
+    @inbounds for jj in 1:m
+        aj = act[jj]
+        for ii in 1:m
+            D[ii, jj] = D[act[ii], aj]
+        end
+    end
+
+    # Move the per-slot vectors and mark the new prefix fully live.
+    @inbounds for a in 1:m
+        sa = act[a]
+        R[a] = R[sa]
+        Q[a] = Q[sa]
+        idmap[a] = idmap[sa]
+        obsolete[a] = false
+    end
+
+    return m, new_prev
+end
+
 # --- Merge bookkeeping ------------------------------------------------------
 
-# Record the join of slots `x` and `y` as row `it` of the output. `n_rem` is the
-# number of active nodes before this join (used for the branch-length formula).
-@inline function _record_merge!(merges, heights, it, x, y, d_xy, R, idmap, n, n_rem)
-    @inbounds merges[it, 1] = _mergeidx(idmap[x], n)
-    @inbounds merges[it, 2] = _mergeidx(idmap[y], n)
+# Record the join of slots `x` and `y` as row `it` of the output. `n_original` maps
+# node ids to merge indices; `n_rem` (active nodes before this join) sets the
+# branch-length formula.
+@inline function _record_merge!(merges, heights, it, x, y, d_xy, R, idmap, n_original, n_rem)
+    @inbounds merges[it, 1] = _mergeidx(idmap[x], n_original)
+    @inbounds merges[it, 2] = _mergeidx(idmap[y], n_original)
 
     d = Float64(d_xy)
     β = n_rem > 2 ? (1 / (2 * (n_rem - 2))) * (Float64(R[x]) - Float64(R[y])) : 0.0
@@ -399,8 +475,8 @@ end
     return nothing
 end
 
-# Return -x for leaves (slot id <= n) or the internal-node row index otherwise.
-_mergeidx(i, n) = i <= n ? -i : i - n
+# Return -x for leaves (node id <= n_original) or the internal-node row index otherwise.
+_mergeidx(i, n_original) = i <= n_original ? -i : i - n_original
 
 # Find the two remaining active slots (used at termination).
 @inline function _two_active(obsolete, n)
