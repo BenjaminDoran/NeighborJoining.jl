@@ -12,6 +12,8 @@ This package contains algorithms for [neighbor joining](https://en.wikipedia.org
 * regular Neighborjoining `regNJ()`: Saitou, N. & Nei, M. The neighbor-joining method: a new method for reconstructing phylogenetic trees. Molecular Biology and Evolution 4, 406-425 (1987).
 * fast NeighborJoining `fastNJ()`: Li, J. F. A fast neighbor joining method. Genet Mol Res 14, 8733–8743 (2015).
     * This is an estimation algorithm and uses heuristics. Thus, it will not always find the exact additive tree, but it should be close 
+* dynamic NeighborJoining `dynamicNJ()`: Clausen, P. T. L. C. Scaling neighbor joining to one million taxa with dynamic and heuristic neighbor joining. Bioinformatics 39, btac774 (2023).
+    * This is *exact* (same tree as `regNJ()`) but much faster on large inputs, and can use multiple threads (`julia -t auto`).
 
 
 
@@ -41,7 +43,7 @@ julia> Dnt = [
            0.973262  0.995447  0.987918   0.993084  0.281812  0.987006  0.987954   0.0
        ];
 
-julia> njc = regNJ(Dnt) # or fastNJ(Dnt) if regNJ is too slow
+julia> njc = regNJ(Dnt) # or fastNJ(Dnt)/dynamic(NJ) if regNJ is too slow
 NJClust{Int64, Float64}([-7 -3; -8 -5; … ; -2 5; -4 6], [0.010421866666666738 0.010406033333333262; 0.1409980999999999 0.1408139000000001; … ; 0.4989758125 0.003104687499999925; 0.24975659374999998 0.24975659374999998])
 
 julia> merges(njc)

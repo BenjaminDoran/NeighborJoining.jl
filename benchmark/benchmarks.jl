@@ -22,9 +22,14 @@ end
 const SUITE = BenchmarkGroup()
 SUITE["RegularNeighborJoining"] = BenchmarkGroup(["RNJ", "RegularNeighborJoining", "ExactAlgorithm"])
 SUITE["FastNeighborJoining"] = BenchmarkGroup(["FNJ", "FastNeighborJoining", "InexactAlgorithm"])
+SUITE["DynamicNeighborJoining"] = BenchmarkGroup(["DNJ", "DynamicNeighborJoining", "ExactAlgorithm"])
 
 for i in 2 .^ (2:10)
-    n, labels, Dij = load_phylip_matrix("benchmark/benchmarkdata/dist_mtx_$i.txt")
+    @info "Benchmarking n=$i"
+    _, _, Dij = load_phylip_matrix("benchmark/benchmarkdata/dist_mtx_$i.txt")
     SUITE["RegularNeighborJoining"]["regNJ_size$i"] = @benchmarkable regNJ($Dij)
     SUITE["FastNeighborJoining"]["fastNJ_size$i"] = @benchmarkable fastNJ($Dij)
+    SUITE["DynamicNeighborJoining"]["dynamicNJ_size$i"] = @benchmarkable dynamicNJ($Dij)
 end
+
+results = run(SUITE, verbose=true)

@@ -13,6 +13,8 @@ This package contains algorithms for [neighbor joining](https://en.wikipedia.org
 * regular Neighborjoining `regNJ()`: Saitou, N. & Nei, M. The neighbor-joining method: a new method for reconstructing phylogenetic trees. Molecular Biology and Evolution 4, 406-425 (1987).
 * fast NeighborJoining `fastNJ()`: Li, J. F. A fast neighbor joining method. Genet Mol Res 14, 8733–8743 (2015).
     * uses heuristics, will not always find the additive tree
+* dynamic NeighborJoining `dynamicNJ()`: Clausen, P. T. L. C. Scaling neighbor joining to one million taxa with dynamic and heuristic neighbor joining. Bioinformatics 39, btac774 (2023).
+    * exact (same tree as `regNJ`) but much faster on large inputs; multithreaded with `julia -t auto`
 
 
 ## Installation
@@ -33,6 +35,9 @@ njclusts = regNJ(d)
 
 # or fast neighbor joining
 njclusts = fastNJ(d)
+
+# or dynamic neighbor joining (exact, faster on large inputs, multithreaded)
+njclusts = dynamicNJ(d)
 
 # convert to newicktree string for export to other packages
 nwstring = newickstring(njclusts)

@@ -106,6 +106,10 @@ include("FastNeighborJoining.jl")
 using .FastNeighborJoining: fastNJ
 export fastNJ
 
+include("DynamicNeighborJoining.jl")
+using .DynamicNeighborJoining: dynamicNJ
+export dynamicNJ
+
 include("newickstring.jl")
 export newickstring
 
